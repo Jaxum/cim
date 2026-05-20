@@ -22,7 +22,7 @@ pip install -r requirements.txt
 
 ## Training
 
-Training is configured via src/config.py. CLI is intentionally minimal; use config defaults for most settings.
+Training is configured via src/config.py.  use config defaults for most settings.
 
 Example:
 
