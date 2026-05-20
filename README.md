@@ -67,4 +67,3 @@ Optional flags:
 ## Notes
 
 - Dataset metadata (attributes, causal/confounder fields) is defined in src/config.py.
-- WDC datasets use train_size-specific files (train.txt.<size>), but size selection is handled in src/dataset.py.
