@@ -5,6 +5,7 @@
 """
 
 from dataclasses import dataclass, field
+import os
 from typing import List, Dict, Optional
 
 
@@ -170,23 +171,40 @@ DATASET_METADATA: Dict[str, DatasetConfig] = {
 def get_dataset_config(dataset_name: str) -> DatasetConfig:
     """
     获取特定数据集的配置。
-    
+
+    支持三种匹配：
+    1) 直接使用注册键或别名，例如 "Amazon-Google"
+    2) 与 DatasetConfig.name 完全相等
+    3) 与 data_path 的最后一段（忽略大小写与下划线/连字符）相等，例如 "Amazon-Google"
+
     参数:
-        dataset_name: 数据集名称
-        
+        dataset_name: 数据集名称或别名
+
     返回:
         指定数据集的DatasetConfig对象
-        
+
     抛出:
-        ValueError: 如果在DATASET_METADATA中找不到dataset_name
+        ValueError: 如果无法解析 dataset_name
     """
-    if dataset_name not in DATASET_METADATA:
-        available_datasets = ", ".join(DATASET_METADATA.keys())
-        raise ValueError(
-            f"Dataset '{dataset_name}' not found in metadata. "
-            f"Available datasets: {available_datasets}"
-        )
-    return DATASET_METADATA[dataset_name]
+    if dataset_name in DATASET_METADATA:
+        return DATASET_METADATA[dataset_name]
+
+    for cfg in DATASET_METADATA.values():
+        if dataset_name == cfg.name:
+            return cfg
+
+    norm = lambda s: s.replace("_", "").replace("-", "").lower()
+    wanted = norm(dataset_name)
+    for cfg in DATASET_METADATA.values():
+        tail = os.path.basename(cfg.data_path)
+        if norm(tail) == wanted:
+            return cfg
+
+    available_datasets = ", ".join(DATASET_METADATA.keys())
+    raise ValueError(
+        f"Dataset '{dataset_name}' not found in metadata. "
+        f"Available datasets: {available_datasets}"
+    )
 
 
 def get_full_config(dataset_name: str, **overrides) -> tuple:
