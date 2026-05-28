@@ -16,7 +16,7 @@ def _resolve_dataset_config(dataset_name: str):
     """Resolve dataset config by name/alias.
 
     Supports:
-    1) direct registry key (e.g., "Magellan_Amazon_Google")
+    1) direct registry key or alias (e.g., "Amazon-Google")
     2) exact DatasetConfig.name match
     3) data_path tail match (case/underscore/dash insensitive)
     """
