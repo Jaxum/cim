@@ -1,4 +1,5 @@
 import argparse
+import json
 import random
 import numpy as np
 import torch
@@ -71,9 +72,21 @@ def parse_arguments():
     
     # GSA settings
     parser.add_argument("--enable_gsa", action="store_true", help="Enable GSA pretraining")
-    # Note: GSA hyperparameters (lr/batch_size/epochs) are configured in run_tapt.py.
-    # If you need custom settings, run run_tapt.py directly.
+    # Note: GSA hyperparameters (lr/batch_size/epochs) are configured in run_GSA.py.
+    # If you need custom settings, run run_GSA.py directly.
     parser.add_argument("--re_gsa", action="store_true", help="Force rerun GSA even if a model exists")
+
+    # 自动标注设置
+    parser.add_argument("--llm_attr_auto", action="store_true", help="Auto-select causal/confounder attrs via LLM")
+    parser.add_argument("--llm_attr_provider", choices=["openai", "gemini"], default="openai")
+    parser.add_argument("--llm_attr_model", default=None, help="Override LLM model name")
+    parser.add_argument("--llm_attr_api_base", default=None, help="Override LLM API base URL")
+    parser.add_argument("--llm_attr_api_key_env", default=None, help="Override LLM API key env var")
+    parser.add_argument("--llm_attr_split", default="train", choices=["train", "valid", "test"])
+    parser.add_argument("--llm_attr_num_pairs", type=int, default=8)
+    parser.add_argument("--llm_attr_votes", type=int, default=3)
+    parser.add_argument("--llm_attr_reuse_cached", action="store_true")
+    parser.add_argument("--llm_attr_refresh_cached", action="store_true")
     
     
     return parser.parse_args()
@@ -86,7 +99,7 @@ def run_gsa_if_needed(dataset_name, base_model, args):
     返回:
         str: GSA model path if enabled; otherwise the base model
     """
-    # Resolve dataset short name (must match run_tapt.py logic)
+    # Resolve dataset short name (must match run_GSA.py logic)
     try:
         dataset_config = get_dataset_config(dataset_name)
         base_name = os.path.basename(dataset_config.data_path)
@@ -115,13 +128,13 @@ def run_gsa_if_needed(dataset_name, base_model, args):
         
         print(f"Dataset: {dataset_name}")
         print(f"Base model: {base_model}")
-        print("GSA will use defaults from run_tapt.py.")
+        print("GSA will use defaults from run_GSA.py.")
         print()
         
-        # Call run_tapt.py
+        # Call run_GSA.py
         cmd = [
             sys.executable,  # Use current Python interpreter
-            "run_tapt.py",
+            "run_GSA.py",
             "--dataset_name", dataset_name,
             "--base_model", base_model,
             "--corpus_splits", "all",
@@ -215,6 +228,59 @@ def main():
     model_config.seed = args.seed
     
     dataset_config = get_dataset_config(args.dataset_name)
+
+    if args.llm_attr_auto:
+        llm_out_dir = os.path.join("./attr_auto", "llm_labels")
+        os.makedirs(llm_out_dir, exist_ok=True)
+        llm_out_path = os.path.join(
+            llm_out_dir, f"{args.dataset_name}_{args.llm_attr_split}_llm_labels.json"
+        )
+
+        cmd = [
+            sys.executable,
+            "llm_attribute_auto_label.py",
+            "--dataset_name",
+            args.dataset_name,
+            "--data_root",
+            args.data_dir,
+            "--split",
+            args.llm_attr_split,
+            "--num_pairs",
+            str(args.llm_attr_num_pairs),
+            "--votes",
+            str(args.llm_attr_votes),
+            "--provider",
+            args.llm_attr_provider,
+            "--output_file",
+            llm_out_path,
+        ]
+
+        if args.llm_attr_model:
+            cmd.extend(["--model", args.llm_attr_model])
+        if args.llm_attr_api_base:
+            cmd.extend(["--api_base", args.llm_attr_api_base])
+        if args.llm_attr_api_key_env:
+            cmd.extend(["--api_key_env", args.llm_attr_api_key_env])
+        if args.llm_attr_reuse_cached:
+            cmd.append("--reuse_cached_labels")
+        if args.llm_attr_refresh_cached:
+            cmd.append("--refresh_cached_labels")
+
+        print("Running LLM attribute labeling...")
+        try:
+            subprocess.run(cmd, check=True, text=True)
+        except subprocess.CalledProcessError as e:
+            print(f"LLM labeling failed: {e}")
+            sys.exit(1)
+
+        with open(llm_out_path, "r", encoding="utf-8") as f:
+            report = json.load(f)
+        selected = report.get("selected_labels", {})
+        if not isinstance(selected, dict):
+            raise ValueError("Invalid LLM label report: selected_labels missing or invalid")
+
+        dataset_config.causal_attributes = list(selected.get("causal", []))
+        dataset_config.confounder_attributes = list(selected.get("confounder", []))
     
     
     # 创建数据加载器
